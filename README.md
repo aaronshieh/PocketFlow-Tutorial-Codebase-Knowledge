@@ -1,10 +1,10 @@
-<h1 align="center">Turns Codebase into Easy Tutorial with AI</h1>
+<h1 align="center">Generate Database Schemas from Codebases with AI</h1>
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
  <a href="https://discord.gg/hUHHE9Sa6T">
     <img src="https://img.shields.io/discord/1346833819172601907?logo=discord&style=flat">
 </a>
-> *Ever stared at a new codebase written by others feeling completely lost? This tutorial shows you how to build an AI agent that analyzes GitHub repositories and creates beginner-friendly tutorials explaining exactly how the code works.*
+> *Ever stared at a new codebase wondering what data it stores? This project builds an AI agent that analyzes GitHub repositories and produces a complete database schema describing every table and column.*
 
 <p align="center">
   <img
@@ -12,67 +12,13 @@
   />
 </p>
 
-This is a tutorial project of [Pocket Flow](https://github.com/The-Pocket/PocketFlow), a 100-line LLM framework. It crawls GitHub repositories and builds a knowledge base from the code. It analyzes entire codebases to identify core abstractions and how they interact, and transforms complex code into beginner-friendly tutorials with clear visualizations.
+This project showcases [Pocket Flow](https://github.com/The-Pocket/PocketFlow), a 100-line LLM framework. It crawls GitHub repositories and analyzes the code to identify every database table used. The agent then generates a complete schema describing each table, every column, and the meaning of any constrained values such as enums.
 
 - Check out the [YouTube Development Tutorial](https://youtu.be/AFY67zOpbSo) for more!
 
 - Check out the [Substack Post Tutorial](https://zacharyhuang.substack.com/p/ai-codebase-knowledge-builder-full) for more!
 
 &nbsp;&nbsp;**🔸 🎉 Reached Hacker News Front Page** (April 2025) with >900 up‑votes:  [Discussion »](https://news.ycombinator.com/item?id=43739456)
-
-&nbsp;&nbsp;**🔸 🎊 Online Service Now Live!** (May&nbsp;2025) Try our new online version at [https://code2tutorial.com/](https://code2tutorial.com/) – just paste a GitHub link, no installation needed!
-
-## ⭐ Example Results for Popular GitHub Repositories!
-
-<p align="center">
-    <img
-      src="./assets/example.png" width="600"
-    />
-</p>
-
-🤯 All these tutorials are generated **entirely by AI** by crawling the GitHub repo!
-
-- [AutoGen Core](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/AutoGen%20Core) - Build AI teams that talk, think, and solve problems together like coworkers!
-
-- [Browser Use](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Browser%20Use) - Let AI surf the web for you, clicking buttons and filling forms like a digital assistant!
-
-- [Celery](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Celery) - Supercharge your app with background tasks that run while you sleep!
-
-- [Click](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Click) - Turn Python functions into slick command-line tools with just a decorator!
-
-- [Codex](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Codex) - Turn plain English into working code with this AI terminal wizard!
-
-- [Crawl4AI](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Crawl4AI) - Train your AI to extract exactly what matters from any website!
-
-- [CrewAI](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/CrewAI) - Assemble a dream team of AI specialists to tackle impossible problems!
-
-- [DSPy](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/DSPy) - Build LLM apps like Lego blocks that optimize themselves!
-
-- [FastAPI](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/FastAPI) - Create APIs at lightning speed with automatic docs that clients will love!
-
-- [Flask](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Flask) - Craft web apps with minimal code that scales from prototype to production!
-
-- [Google A2A](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Google%20A2A) - The universal language that lets AI agents collaborate across borders!
-
-- [LangGraph](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/LangGraph) - Design AI agents as flowcharts where each step remembers what happened before!
-
-- [LevelDB](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/LevelDB) - Store data at warp speed with Google's engine that powers blockchains!
-
-- [MCP Python SDK](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/MCP%20Python%20SDK) - Build powerful apps that communicate through an elegant protocol without sweating the details!
-
-- [NumPy Core](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/NumPy%20Core) - Master the engine behind data science that makes Python as fast as C!
-
-- [OpenManus](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/OpenManus) - Build AI agents with digital brains that think, learn, and use tools just like humans do!
-
-- [PocketFlow](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/PocketFlow) - 100-line LLM framework. Let Agents build Agents!
-
-- [Pydantic Core](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Pydantic%20Core) - Validate data at rocket speed with just Python type hints!
-
-- [Requests](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/Requests) - Talk to the internet in Python with code so simple it feels like cheating!
-
-- [SmolaAgents](https://the-pocket.github.io/PocketFlow-Tutorial-Codebase-Knowledge/SmolaAgents) - Build tiny AI agents that punch way above their weight class!
-
-- Showcase Your AI-Generated Tutorials in [Discussions](https://github.com/The-Pocket/PocketFlow-Tutorial-Codebase-Knowledge/discussions)!
 
 ## 🚀 Getting Started
 
@@ -99,16 +45,13 @@ This is a tutorial project of [Pocket Flow](https://github.com/The-Pocket/Pocket
    python utils/call_llm.py
    ```
 
-5. Generate a complete codebase tutorial by running the main script:
+5. Generate a complete database schema by running the main script:
     ```bash
     # Analyze a GitHub repository
     python main.py --repo https://github.com/username/repo --include "*.py" "*.js" --exclude "tests/*" --max-size 50000
 
     # Or, analyze a local directory
     python main.py --dir /path/to/your/codebase --include "*.py" --exclude "*test*"
-
-    # Or, generate a tutorial in Chinese
-    python main.py --repo https://github.com/username/repo --language "Chinese"
     ```
 
     - `--repo` or `--dir` - Specify either a GitHub repo URL or a local directory path (required, mutually exclusive)
@@ -118,11 +61,9 @@ This is a tutorial project of [Pocket Flow](https://github.com/The-Pocket/Pocket
     - `-i, --include` - Files to include (e.g., "`*.py`" "`*.js`")
     - `-e, --exclude` - Files to exclude (e.g., "`tests/*`" "`docs/*`")
     - `-s, --max-size` - Maximum file size in bytes (default: 100KB)
-    - `--language` - Language for the generated tutorial (default: "english")
-    - `--max-abstractions` - Maximum number of abstractions to identify (default: 10)
     - `--no-cache` - Disable LLM response caching (default: caching enabled)
 
-The application will crawl the repository, analyze the codebase structure, generate tutorial content in the specified language, and save the output in the specified directory (default: ./output).
+    The application will crawl the repository, analyze the codebase, and write a YAML file describing every table and column in the specified directory (default: ./output).
 
 
 <details>
@@ -140,14 +81,14 @@ To run this project in a Docker container, you'll need to pass your API keys as 
 
    You'll need to provide your `GEMINI_API_KEY` for the LLM to function. If you're analyzing private GitHub repositories or want to avoid rate limits, also provide your `GITHUB_TOKEN`.
    
-   Mount a local directory to `/app/output` inside the container to access the generated tutorials on your host machine.
+   Mount a local directory to `/app/output` inside the container to access the generated schema on your host machine.
    
    **Example for analyzing a public GitHub repository:**
    
    ```bash
    docker run -it --rm \
      -e GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE" \
-     -v "$(pwd)/output_tutorials":/app/output \
+     -v "$(pwd)/output_schema":/app/output \
      pocketflow-app --repo https://github.com/username/repo
    ```
    
@@ -157,7 +98,7 @@ To run this project in a Docker container, you'll need to pass your API keys as 
    docker run -it --rm \
      -e GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE" \
      -v "/path/to/your/local_codebase":/app/code_to_analyze \
-     -v "$(pwd)/output_tutorials":/app/output \
+     -v "$(pwd)/output_schema":/app/output \
      pocketflow-app --dir /app/code_to_analyze
    ```
 </details>
