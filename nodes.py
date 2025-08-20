@@ -81,13 +81,13 @@ class FetchRepo(Node):
         shared["files"] = exec_res  # List of (path, content) tuples
 
 
-class IdentifyAbstractions(Node):
+class IdentifyTables(Node):
     def prep(self, shared):
         files_data = shared["files"]
         project_name = shared["project_name"]  # Get project name
         language = shared.get("language", "english")  # Get language
         use_cache = shared.get("use_cache", True)  # Get use_cache flag, default to True
-        max_abstraction_num = shared.get("max_abstraction_num", 10)  # Get max_abstraction_num, default to 10
+        max_table_num = shared.get("max_abstraction_num", 15)  # Renamed to max_table_num, increased default
 
         # Helper to create context from files, respecting limits (basic example)
         def create_llm_context(files_data):
@@ -112,7 +112,7 @@ class IdentifyAbstractions(Node):
             project_name,
             language,
             use_cache,
-            max_abstraction_num,
+            max_table_num,
         )  # Return all parameters
 
     def exec(self, prep_res):
@@ -123,16 +123,16 @@ class IdentifyAbstractions(Node):
             project_name,
             language,
             use_cache,
-            max_abstraction_num,
+            max_table_num,
         ) = prep_res  # Unpack all parameters
-        print(f"Identifying abstractions using LLM...")
+        print(f"Identifying database tables/models using LLM...")
 
         # Add language instruction and hints only if not English
         language_instruction = ""
         name_lang_hint = ""
         desc_lang_hint = ""
         if language.lower() != "english":
-            language_instruction = f"IMPORTANT: Generate the `name` and `description` for each abstraction in **{language.capitalize()}** language. Do NOT use English for these fields.\n\n"
+            language_instruction = f"IMPORTANT: Generate the `name` and `description` for each table in **{language.capitalize()}** language. Do NOT use English for these fields.\n\n"
             # Keep specific hints here as name/description are primary targets
             name_lang_hint = f" (value in {language.capitalize()})"
             desc_lang_hint = f" (value in {language.capitalize()})"
@@ -143,13 +143,20 @@ For the project `{project_name}`:
 Codebase Context:
 {context}
 
-{language_instruction}Analyze the codebase context.
-Identify the top 5-{max_abstraction_num} core most important abstractions to help those new to the codebase.
+{language_instruction}Analyze the codebase context to identify database tables, models, or data structures used for data persistence.
+Look for:
+- Database table definitions (SQL CREATE TABLE statements)
+- ORM model classes (like SQLAlchemy, Django models, Hibernate entities)
+- Data transfer objects or entities that represent database tables
+- Schema definitions in migration files
+- Database configuration files
 
-For each abstraction, provide:
-1. A concise `name`{name_lang_hint}.
-2. A beginner-friendly `description` explaining what it is with a simple analogy, in around 100 words{desc_lang_hint}.
-3. A list of relevant `file_indices` (integers) using the format `idx # path/comment`.
+Identify the top 5-{max_table_num} most important database tables/models.
+
+For each table/model, provide:
+1. A concise `name`{name_lang_hint} (the actual table/model name).
+2. A beginner-friendly `description` explaining what data this table stores, in around 100 words{desc_lang_hint}.
+3. A list of relevant `file_indices` (integers) where this table/model is defined or used.
 
 List of file indices and paths present in the context:
 {file_listing_for_prompt}
@@ -158,36 +165,38 @@ Format the output as a YAML list of dictionaries:
 
 ```yaml
 - name: |
-    Query Processing{name_lang_hint}
+    users{name_lang_hint}
   description: |
-    Explains what the abstraction does.
-    It's like a central dispatcher routing requests.{desc_lang_hint}
+    Stores user account information including authentication details,
+    profile data, and user preferences. This is the main table for 
+    managing user accounts in the system.{desc_lang_hint}
   file_indices:
-    - 0 # path/to/file1.py
-    - 3 # path/to/related.py
+    - 0 # path/to/user_model.py
+    - 3 # path/to/migrations/create_users.sql
 - name: |
-    Query Optimization{name_lang_hint}
+    orders{name_lang_hint}
   description: |
-    Another core concept, similar to a blueprint for objects.{desc_lang_hint}
+    Contains customer order information including order details,
+    status, and payment information.{desc_lang_hint}
   file_indices:
-    - 5 # path/to/another.js
-# ... up to {max_abstraction_num} abstractions
+    - 5 # path/to/order_model.py
+# ... up to {max_table_num} tables
 ```"""
         response = call_llm(prompt, use_cache=(use_cache and self.cur_retry == 0))  # Use cache only if enabled and not retrying
 
         # --- Validation ---
         yaml_str = response.strip().split("```yaml")[1].split("```")[0].strip()
-        abstractions = yaml.safe_load(yaml_str)
+        tables = yaml.safe_load(yaml_str)
 
-        if not isinstance(abstractions, list):
+        if not isinstance(tables, list):
             raise ValueError("LLM Output is not a list")
 
-        validated_abstractions = []
-        for item in abstractions:
+        validated_tables = []
+        for item in tables:
             if not isinstance(item, dict) or not all(
                 k in item for k in ["name", "description", "file_indices"]
             ):
-                raise ValueError(f"Missing keys in abstraction item: {item}")
+                raise ValueError(f"Missing keys in table item: {item}")
             if not isinstance(item["name"], str):
                 raise ValueError(f"Name is not a string in item: {item}")
             if not isinstance(item["description"], str):
@@ -218,7 +227,7 @@ Format the output as a YAML list of dictionaries:
 
             item["files"] = sorted(list(set(validated_indices)))
             # Store only the required fields
-            validated_abstractions.append(
+            validated_tables.append(
                 {
                     "name": item["name"],  # Potentially translated name
                     "description": item[
@@ -228,42 +237,42 @@ Format the output as a YAML list of dictionaries:
                 }
             )
 
-        print(f"Identified {len(validated_abstractions)} abstractions.")
-        return validated_abstractions
+        print(f"Identified {len(validated_tables)} database tables/models.")
+        return validated_tables
 
     def post(self, shared, prep_res, exec_res):
-        shared["abstractions"] = (
+        shared["tables"] = (
             exec_res  # List of {"name": str, "description": str, "files": [int]}
         )
 
 
-class AnalyzeRelationships(Node):
+class AnalyzeTableRelationships(Node):
     def prep(self, shared):
-        abstractions = shared[
-            "abstractions"
+        tables = shared[
+            "tables"
         ]  # Now contains 'files' list of indices, name/description potentially translated
         files_data = shared["files"]
         project_name = shared["project_name"]  # Get project name
         language = shared.get("language", "english")  # Get language
         use_cache = shared.get("use_cache", True)  # Get use_cache flag, default to True
 
-        # Get the actual number of abstractions directly
-        num_abstractions = len(abstractions)
+        # Get the actual number of tables directly
+        num_tables = len(tables)
 
-        # Create context with abstraction names, indices, descriptions, and relevant file snippets
-        context = "Identified Abstractions:\\n"
+        # Create context with table names, indices, descriptions, and relevant file snippets
+        context = "Identified Database Tables:\\n"
         all_relevant_indices = set()
-        abstraction_info_for_prompt = []
-        for i, abstr in enumerate(abstractions):
+        table_info_for_prompt = []
+        for i, table in enumerate(tables):
             # Use 'files' which contains indices directly
-            file_indices_str = ", ".join(map(str, abstr["files"]))
-            # Abstraction name and description might be translated already
-            info_line = f"- Index {i}: {abstr['name']} (Relevant file indices: [{file_indices_str}])\\n  Description: {abstr['description']}"
+            file_indices_str = ", ".join(map(str, table["files"]))
+            # Table name and description might be translated already
+            info_line = f"- Index {i}: {table['name']} (Relevant file indices: [{file_indices_str}])\\n  Description: {table['description']}"
             context += info_line + "\\n"
-            abstraction_info_for_prompt.append(
-                f"{i} # {abstr['name']}"
+            table_info_for_prompt.append(
+                f"{i} # {table['name']}"
             )  # Use potentially translated name here too
-            all_relevant_indices.update(abstr["files"])
+            all_relevant_indices.update(table["files"])
 
         context += "\\nRelevant File Snippets (Referenced by Index and Path):\\n"
         # Get content for relevant files using helper
@@ -279,8 +288,8 @@ class AnalyzeRelationships(Node):
 
         return (
             context,
-            "\n".join(abstraction_info_for_prompt),
-            num_abstractions, # Pass the actual count
+            "\n".join(table_info_for_prompt),
+            num_tables, # Pass the actual count
             project_name,
             language,
             use_cache,
@@ -289,13 +298,13 @@ class AnalyzeRelationships(Node):
     def exec(self, prep_res):
         (
             context,
-            abstraction_listing,
-            num_abstractions, # Receive the actual count
+            table_listing,
+            num_tables, # Receive the actual count
             project_name,
             language,
             use_cache,
          ) = prep_res  # Unpack use_cache
-        print(f"Analyzing relationships using LLM...")
+        print(f"Analyzing database table relationships using LLM...")
 
         # Add language instruction and hints only if not English
         language_instruction = ""
@@ -307,38 +316,42 @@ class AnalyzeRelationships(Node):
             list_lang_note = f" (Names might be in {language.capitalize()})"  # Note for the input list
 
         prompt = f"""
-Based on the following abstractions and relevant code snippets from the project `{project_name}`:
+Based on the following database tables and relevant code snippets from the project `{project_name}`:
 
-List of Abstraction Indices and Names{list_lang_note}:
-{abstraction_listing}
+List of Table Indices and Names{list_lang_note}:
+{table_listing}
 
-Context (Abstractions, Descriptions, Code):
+Context (Tables, Descriptions, Code):
 {context}
 
 {language_instruction}Please provide:
-1. A high-level `summary` of the project's main purpose and functionality in a few beginner-friendly sentences{lang_hint}. Use markdown formatting with **bold** and *italic* text to highlight important concepts.
-2. A list (`relationships`) describing the key interactions between these abstractions. For each relationship, specify:
-    - `from_abstraction`: Index of the source abstraction (e.g., `0 # AbstractionName1`)
-    - `to_abstraction`: Index of the target abstraction (e.g., `1 # AbstractionName2`)
-    - `label`: A brief label for the interaction **in just a few words**{lang_hint} (e.g., "Manages", "Inherits", "Uses").
-    Ideally the relationship should be backed by one abstraction calling or passing parameters to another.
-    Simplify the relationship and exclude those non-important ones.
+1. A high-level `summary` of the database schema's main purpose and the type of data it manages in a few beginner-friendly sentences{lang_hint}. Use markdown formatting with **bold** and *italic* text to highlight important concepts.
+2. A list (`relationships`) describing the key relationships between these database tables. For each relationship, specify:
+    - `from_table`: Index of the source table (e.g., `0 # TableName1`)
+    - `to_table`: Index of the target table (e.g., `1 # TableName2`)
+    - `label`: A brief label for the relationship **in just a few words**{lang_hint} (e.g., "Foreign Key", "One-to-Many", "References", "Belongs To").
+    Look for:
+    - Foreign key constraints
+    - JOIN operations in queries
+    - References between models/entities
+    - Parent-child relationships
+    - Association tables/junction tables
 
-IMPORTANT: Make sure EVERY abstraction is involved in at least ONE relationship (either as source or target). Each abstraction index must appear at least once across all relationships.
+IMPORTANT: Make sure EVERY table is involved in at least ONE relationship (either as source or target). Each table index must appear at least once across all relationships.
 
 Format the output as YAML:
 
 ```yaml
 summary: |
-  A brief, simple explanation of the project{lang_hint}.
+  A brief, simple explanation of the database schema{lang_hint}.
   Can span multiple lines with **bold** and *italic* for emphasis.
 relationships:
-  - from_abstraction: 0 # AbstractionName1
-    to_abstraction: 1 # AbstractionName2
-    label: "Manages"{lang_hint}
-  - from_abstraction: 2 # AbstractionName3
-    to_abstraction: 0 # AbstractionName1
-    label: "Provides config"{lang_hint}
+  - from_table: 0 # TableName1
+    to_table: 1 # TableName2
+    label: "Foreign Key"{lang_hint}
+  - from_table: 2 # TableName3
+    to_table: 0 # TableName1
+    label: "References"{lang_hint}
   # ... other relationships
 ```
 
@@ -366,10 +379,10 @@ Now, provide the YAML output:
         for rel in relationships_data["relationships"]:
             # Check for 'label' key
             if not isinstance(rel, dict) or not all(
-                k in rel for k in ["from_abstraction", "to_abstraction", "label"]
+                k in rel for k in ["from_table", "to_table", "label"]
             ):
                 raise ValueError(
-                    f"Missing keys (expected from_abstraction, to_abstraction, label) in relationship item: {rel}"
+                    f"Missing keys (expected from_table, to_table, label) in relationship item: {rel}"
                 )
             # Validate 'label' is a string
             if not isinstance(rel["label"], str):
@@ -377,13 +390,13 @@ Now, provide the YAML output:
 
             # Validate indices
             try:
-                from_idx = int(str(rel["from_abstraction"]).split("#")[0].strip())
-                to_idx = int(str(rel["to_abstraction"]).split("#")[0].strip())
+                from_idx = int(str(rel["from_table"]).split("#")[0].strip())
+                to_idx = int(str(rel["to_table"]).split("#")[0].strip())
                 if not (
-                    0 <= from_idx < num_abstractions and 0 <= to_idx < num_abstractions
+                    0 <= from_idx < num_tables and 0 <= to_idx < num_tables
                 ):
                     raise ValueError(
-                        f"Invalid index in relationship: from={from_idx}, to={to_idx}. Max index is {num_abstractions-1}."
+                        f"Invalid index in relationship: from={from_idx}, to={to_idx}. Max index is {num_tables-1}."
                     )
                 validated_relationships.append(
                     {
@@ -395,7 +408,7 @@ Now, provide the YAML output:
             except (ValueError, TypeError):
                 raise ValueError(f"Could not parse indices from relationship: {rel}")
 
-        print("Generated project summary and relationship details.")
+        print("Generated database schema summary and relationship details.")
         return {
             "summary": relationships_data["summary"],  # Potentially translated summary
             "details": validated_relationships,  # Store validated, index-based relationships with potentially translated labels
@@ -407,34 +420,34 @@ Now, provide the YAML output:
         shared["relationships"] = exec_res
 
 
-class OrderChapters(Node):
+class OrderTables(Node):
     def prep(self, shared):
-        abstractions = shared["abstractions"]  # Name/description might be translated
+        tables = shared["tables"]  # Name/description might be translated
         relationships = shared["relationships"]  # Summary/label might be translated
         project_name = shared["project_name"]  # Get project name
         language = shared.get("language", "english")  # Get language
         use_cache = shared.get("use_cache", True)  # Get use_cache flag, default to True
 
         # Prepare context for the LLM
-        abstraction_info_for_prompt = []
-        for i, a in enumerate(abstractions):
-            abstraction_info_for_prompt.append(
-                f"- {i} # {a['name']}"
+        table_info_for_prompt = []
+        for i, t in enumerate(tables):
+            table_info_for_prompt.append(
+                f"- {i} # {t['name']}"
             )  # Use potentially translated name
-        abstraction_listing = "\n".join(abstraction_info_for_prompt)
+        table_listing = "\n".join(table_info_for_prompt)
 
         # Use potentially translated summary and labels
         summary_note = ""
         if language.lower() != "english":
             summary_note = (
-                f" (Note: Project Summary might be in {language.capitalize()})"
+                f" (Note: Schema Summary might be in {language.capitalize()})"
             )
 
-        context = f"Project Summary{summary_note}:\n{relationships['summary']}\n\n"
-        context += "Relationships (Indices refer to abstractions above):\n"
+        context = f"Database Schema Summary{summary_note}:\n{relationships['summary']}\n\n"
+        context += "Table Relationships (Indices refer to tables above):\n"
         for rel in relationships["details"]:
-            from_name = abstractions[rel["from"]]["name"]
-            to_name = abstractions[rel["to"]]["name"]
+            from_name = tables[rel["from"]]["name"]
+            to_name = tables[rel["to"]]["name"]
             # Use potentially translated 'label'
             context += f"- From {rel['from']} ({from_name}) to {rel['to']} ({to_name}): {rel['label']}\n"  # Label might be translated
 
@@ -443,9 +456,9 @@ class OrderChapters(Node):
             list_lang_note = f" (Names might be in {language.capitalize()})"
 
         return (
-            abstraction_listing,
+            table_listing,
             context,
-            len(abstractions),
+            len(tables),
             project_name,
             list_lang_note,
             use_cache,
@@ -453,34 +466,40 @@ class OrderChapters(Node):
 
     def exec(self, prep_res):
         (
-            abstraction_listing,
+            table_listing,
             context,
-            num_abstractions,
+            num_tables,
             project_name,
             list_lang_note,
             use_cache,
         ) = prep_res  # Unpack use_cache
-        print("Determining chapter order using LLM...")
+        print("Determining table order using LLM...")
         # No language variation needed here in prompt instructions, just ordering based on structure
         # The input names might be translated, hence the note.
         prompt = f"""
-Given the following project abstractions and their relationships for the project ```` {project_name} ````:
+Given the following database tables and their relationships for the project ```` {project_name} ````:
 
-Abstractions (Index # Name){list_lang_note}:
-{abstraction_listing}
+Database Tables (Index # Name){list_lang_note}:
+{table_listing}
 
-Context about relationships and project summary:
+Context about relationships and schema summary:
 {context}
 
-If you are going to make a tutorial for ```` {project_name} ````, what is the best order to explain these abstractions, from first to last?
-Ideally, first explain those that are the most important or foundational, perhaps user-facing concepts or entry points. Then move to more detailed, lower-level implementation details or supporting concepts.
+If you are going to document the database schema for ```` {project_name} ````, what is the best order to present these tables, from first to last?
+Ideally, first present the core/foundational tables (like users, accounts, basic entities), then move to tables that depend on them (like orders, transactions), and finally supporting/lookup tables (like settings, logs).
 
-Output the ordered list of abstraction indices, including the name in a comment for clarity. Use the format `idx # AbstractionName`.
+Consider:
+- Primary entities first (users, accounts, products)
+- Tables with foreign keys should come after the tables they reference
+- Dependent/child tables should come after parent tables
+- Supporting/lookup tables typically come last
+
+Output the ordered list of table indices, including the name in a comment for clarity. Use the format `idx # TableName`.
 
 ```yaml
-- 2 # FoundationalConcept
-- 0 # CoreClassA
-- 1 # CoreClassB (uses CoreClassA)
+- 2 # users
+- 0 # products  
+- 1 # orders (references users and products)
 - ...
 ```
 
@@ -506,9 +525,9 @@ Now, provide the YAML output:
                 else:
                     idx = int(str(entry).strip())
 
-                if not (0 <= idx < num_abstractions):
+                if not (0 <= idx < num_tables):
                     raise ValueError(
-                        f"Invalid index {idx} in ordered list. Max index is {num_abstractions-1}."
+                        f"Invalid index {idx} in ordered list. Max index is {num_tables-1}."
                     )
                 if idx in seen_indices:
                     raise ValueError(f"Duplicate index {idx} found in ordered list.")
@@ -520,126 +539,126 @@ Now, provide the YAML output:
                     f"Could not parse index from ordered list entry: {entry}"
                 )
 
-        # Check if all abstractions are included
-        if len(ordered_indices) != num_abstractions:
+        # Check if all tables are included
+        if len(ordered_indices) != num_tables:
             raise ValueError(
-                f"Ordered list length ({len(ordered_indices)}) does not match number of abstractions ({num_abstractions}). Missing indices: {set(range(num_abstractions)) - seen_indices}"
+                f"Ordered list length ({len(ordered_indices)}) does not match number of tables ({num_tables}). Missing indices: {set(range(num_tables)) - seen_indices}"
             )
 
-        print(f"Determined chapter order (indices): {ordered_indices}")
+        print(f"Determined table order (indices): {ordered_indices}")
         return ordered_indices  # Return the list of indices
 
     def post(self, shared, prep_res, exec_res):
         # exec_res is already the list of ordered indices
-        shared["chapter_order"] = exec_res  # List of indices
+        shared["table_order"] = exec_res  # List of indices
 
 
-class WriteChapters(BatchNode):
+class WriteTableSchemas(BatchNode):
     def prep(self, shared):
-        chapter_order = shared["chapter_order"]  # List of indices
-        abstractions = shared[
-            "abstractions"
+        table_order = shared["table_order"]  # List of indices
+        tables = shared[
+            "tables"
         ]  # List of {"name": str, "description": str, "files": [int]}
         files_data = shared["files"]  # List of (path, content) tuples
         project_name = shared["project_name"]
         language = shared.get("language", "english")
         use_cache = shared.get("use_cache", True)  # Get use_cache flag, default to True
 
-        # Get already written chapters to provide context
+        # Get already written table schemas to provide context
         # We store them temporarily during the batch run, not in shared memory yet
-        # The 'previous_chapters_summary' will be built progressively in the exec context
-        self.chapters_written_so_far = (
+        # The 'previous_schemas_summary' will be built progressively in the exec context
+        self.schemas_written_so_far = (
             []
         )  # Use instance variable for temporary storage across exec calls
 
-        # Create a complete list of all chapters
-        all_chapters = []
-        chapter_filenames = {}  # Store chapter filename mapping for linking
-        for i, abstraction_index in enumerate(chapter_order):
-            if 0 <= abstraction_index < len(abstractions):
-                chapter_num = i + 1
-                chapter_name = abstractions[abstraction_index][
+        # Create a complete list of all table schemas
+        all_table_schemas = []
+        table_filenames = {}  # Store table filename mapping for linking
+        for i, table_index in enumerate(table_order):
+            if 0 <= table_index < len(tables):
+                schema_num = i + 1
+                table_name = tables[table_index][
                     "name"
                 ]  # Potentially translated name
                 # Create safe filename (from potentially translated name)
                 safe_name = "".join(
-                    c if c.isalnum() else "_" for c in chapter_name
+                    c if c.isalnum() else "_" for c in table_name
                 ).lower()
                 filename = f"{i+1:02d}_{safe_name}.md"
                 # Format with link (using potentially translated name)
-                all_chapters.append(f"{chapter_num}. [{chapter_name}]({filename})")
-                # Store mapping of chapter index to filename for linking
-                chapter_filenames[abstraction_index] = {
-                    "num": chapter_num,
-                    "name": chapter_name,
+                all_table_schemas.append(f"{schema_num}. [{table_name}]({filename})")
+                # Store mapping of table index to filename for linking
+                table_filenames[table_index] = {
+                    "num": schema_num,
+                    "name": table_name,
                     "filename": filename,
                 }
 
-        # Create a formatted string with all chapters
-        full_chapter_listing = "\n".join(all_chapters)
+        # Create a formatted string with all table schemas
+        full_schema_listing = "\n".join(all_table_schemas)
 
         items_to_process = []
-        for i, abstraction_index in enumerate(chapter_order):
-            if 0 <= abstraction_index < len(abstractions):
-                abstraction_details = abstractions[
-                    abstraction_index
+        for i, table_index in enumerate(table_order):
+            if 0 <= table_index < len(tables):
+                table_details = tables[
+                    table_index
                 ]  # Contains potentially translated name/desc
                 # Use 'files' (list of indices) directly
-                related_file_indices = abstraction_details.get("files", [])
+                related_file_indices = table_details.get("files", [])
                 # Get content using helper, passing indices
                 related_files_content_map = get_content_for_indices(
                     files_data, related_file_indices
                 )
 
-                # Get previous chapter info for transitions (uses potentially translated name)
-                prev_chapter = None
+                # Get previous table info for references (uses potentially translated name)
+                prev_table = None
                 if i > 0:
-                    prev_idx = chapter_order[i - 1]
-                    prev_chapter = chapter_filenames[prev_idx]
+                    prev_idx = table_order[i - 1]
+                    prev_table = table_filenames[prev_idx]
 
-                # Get next chapter info for transitions (uses potentially translated name)
-                next_chapter = None
-                if i < len(chapter_order) - 1:
-                    next_idx = chapter_order[i + 1]
-                    next_chapter = chapter_filenames[next_idx]
+                # Get next table info for references (uses potentially translated name)
+                next_table = None
+                if i < len(table_order) - 1:
+                    next_idx = table_order[i + 1]
+                    next_table = table_filenames[next_idx]
 
                 items_to_process.append(
                     {
-                        "chapter_num": i + 1,
-                        "abstraction_index": abstraction_index,
-                        "abstraction_details": abstraction_details,  # Has potentially translated name/desc
+                        "schema_num": i + 1,
+                        "table_index": table_index,
+                        "table_details": table_details,  # Has potentially translated name/desc
                         "related_files_content_map": related_files_content_map,
                         "project_name": shared["project_name"],  # Add project name
-                        "full_chapter_listing": full_chapter_listing,  # Add the full chapter listing (uses potentially translated names)
-                        "chapter_filenames": chapter_filenames,  # Add chapter filenames mapping (uses potentially translated names)
-                        "prev_chapter": prev_chapter,  # Add previous chapter info (uses potentially translated name)
-                        "next_chapter": next_chapter,  # Add next chapter info (uses potentially translated name)
+                        "full_schema_listing": full_schema_listing,  # Add the full schema listing (uses potentially translated names)
+                        "table_filenames": table_filenames,  # Add table filenames mapping (uses potentially translated names)
+                        "prev_table": prev_table,  # Add previous table info (uses potentially translated name)
+                        "next_table": next_table,  # Add next table info (uses potentially translated name)
                         "language": language,  # Add language for multi-language support
                         "use_cache": use_cache, # Pass use_cache flag
-                        # previous_chapters_summary will be added dynamically in exec
+                        # previous_schemas_summary will be added dynamically in exec
                     }
                 )
             else:
                 print(
-                    f"Warning: Invalid abstraction index {abstraction_index} in chapter_order. Skipping."
+                    f"Warning: Invalid table index {table_index} in table_order. Skipping."
                 )
 
-        print(f"Preparing to write {len(items_to_process)} chapters...")
+        print(f"Preparing to write {len(items_to_process)} table schemas...")
         return items_to_process  # Iterable for BatchNode
 
     def exec(self, item):
         # This runs for each item prepared above
-        abstraction_name = item["abstraction_details"][
+        table_name = item["table_details"][
             "name"
         ]  # Potentially translated name
-        abstraction_description = item["abstraction_details"][
+        table_description = item["table_details"][
             "description"
         ]  # Potentially translated description
-        chapter_num = item["chapter_num"]
+        schema_num = item["schema_num"]
         project_name = item.get("project_name")
         language = item.get("language", "english")
         use_cache = item.get("use_cache", True) # Read use_cache from item
-        print(f"Writing chapter {chapter_num} for: {abstraction_name} using LLM...")
+        print(f"Writing schema documentation {schema_num} for table: {table_name} using LLM...")
 
         # Prepare file context string from the map
         file_context_str = "\n\n".join(
@@ -647,110 +666,105 @@ class WriteChapters(BatchNode):
             for idx_path, content in item["related_files_content_map"].items()
         )
 
-        # Get summary of chapters written *before* this one
+        # Get summary of schemas written *before* this one
         # Use the temporary instance variable
-        previous_chapters_summary = "\n---\n".join(self.chapters_written_so_far)
+        previous_schemas_summary = "\n---\n".join(self.schemas_written_so_far)
 
         # Add language instruction and context notes only if not English
         language_instruction = ""
-        concept_details_note = ""
+        table_details_note = ""
         structure_note = ""
         prev_summary_note = ""
         instruction_lang_note = ""
-        mermaid_lang_note = ""
-        code_comment_note = ""
         link_lang_note = ""
         tone_note = ""
         if language.lower() != "english":
             lang_cap = language.capitalize()
-            language_instruction = f"IMPORTANT: Write this ENTIRE tutorial chapter in **{lang_cap}**. Some input context (like concept name, description, chapter list, previous summary) might already be in {lang_cap}, but you MUST translate ALL other generated content including explanations, examples, technical terms, and potentially code comments into {lang_cap}. DO NOT use English anywhere except in code syntax, required proper nouns, or when specified. The entire output MUST be in {lang_cap}.\n\n"
-            concept_details_note = f" (Note: Provided in {lang_cap})"
-            structure_note = f" (Note: Chapter names might be in {lang_cap})"
+            language_instruction = f"IMPORTANT: Write this ENTIRE table schema documentation in **{lang_cap}**. Some input context (like table name, description, schema list, previous summary) might already be in {lang_cap}, but you MUST translate ALL other generated content including explanations, column descriptions, constraint descriptions into {lang_cap}. DO NOT use English anywhere except in actual code/SQL syntax, required technical terms, or when specified. The entire output MUST be in {lang_cap}.\n\n"
+            table_details_note = f" (Note: Provided in {lang_cap})"
+            structure_note = f" (Note: Table names might be in {lang_cap})"
             prev_summary_note = f" (Note: This summary might be in {lang_cap})"
             instruction_lang_note = f" (in {lang_cap})"
-            mermaid_lang_note = f" (Use {lang_cap} for labels/text if appropriate)"
-            code_comment_note = f" (Translate to {lang_cap} if possible, otherwise keep minimal English for clarity)"
             link_lang_note = (
-                f" (Use the {lang_cap} chapter title from the structure above)"
+                f" (Use the {lang_cap} table name from the structure above)"
             )
             tone_note = f" (appropriate for {lang_cap} readers)"
 
         prompt = f"""
-{language_instruction}Write a very beginner-friendly tutorial chapter (in Markdown format) for the project `{project_name}` about the concept: "{abstraction_name}". This is Chapter {chapter_num}.
+{language_instruction}Write a comprehensive database table schema documentation (in Markdown format) for the project `{project_name}` about the table: "{table_name}". This is Table Schema {schema_num}.
 
-Concept Details{concept_details_note}:
-- Name: {abstraction_name}
+Table Details{table_details_note}:
+- Name: {table_name}
 - Description:
-{abstraction_description}
+{table_description}
 
-Complete Tutorial Structure{structure_note}:
-{item["full_chapter_listing"]}
+Complete Database Schema Structure{structure_note}:
+{item["full_schema_listing"]}
 
-Context from previous chapters{prev_summary_note}:
-{previous_chapters_summary if previous_chapters_summary else "This is the first chapter."}
+Context from previous table schemas{prev_summary_note}:
+{previous_schemas_summary if previous_schemas_summary else "This is the first table schema."}
 
-Relevant Code Snippets (Code itself remains unchanged):
-{file_context_str if file_context_str else "No specific code snippets provided for this abstraction."}
+Relevant Code Snippets (SQL/Code syntax remains unchanged):
+{file_context_str if file_context_str else "No specific code snippets provided for this table."}
 
-Instructions for the chapter (Generate content in {language.capitalize()} unless specified otherwise):
-- Start with a clear heading (e.g., `# Chapter {chapter_num}: {abstraction_name}`). Use the provided concept name.
+Instructions for the schema documentation (Generate content in {language.capitalize()} unless specified otherwise):
+- Start with a clear heading (e.g., `# Table Schema {schema_num}: {table_name}`). Use the provided table name.
 
-- If this is not the first chapter, begin with a brief transition from the previous chapter{instruction_lang_note}, referencing it with a proper Markdown link using its name{link_lang_note}.
+- Begin with a high-level overview explaining what this table stores and its role in the database{instruction_lang_note}. 
 
-- Begin with a high-level motivation explaining what problem this abstraction solves{instruction_lang_note}. Start with a central use case as a concrete example. The whole chapter should guide the reader to understand how to solve this use case. Make it very minimal and friendly to beginners.
+- **Columns Section**: Create a detailed table with the following columns{instruction_lang_note}:
+  - Column Name
+  - Data Type
+  - Constraints (NOT NULL, PRIMARY KEY, FOREIGN KEY, UNIQUE, etc.)
+  - Description{instruction_lang_note}
+  - Possible Values (especially for ENUMs, boolean fields, or fields with restricted values){instruction_lang_note}
 
-- If the abstraction is complex, break it down into key concepts. Explain each concept one-by-one in a very beginner-friendly way{instruction_lang_note}.
+- For ENUM fields or fields with restricted values, provide a detailed explanation of what each value represents{instruction_lang_note}.
 
-- Explain how to use this abstraction to solve the use case{instruction_lang_note}. Give example inputs and outputs for code snippets (if the output isn't values, describe at a high level what will happen{instruction_lang_note}).
+- **Constraints and Indexes**: List all constraints, primary keys, foreign keys, unique constraints, and indexes{instruction_lang_note}.
 
-- Each code block should be BELOW 10 lines! If longer code blocks are needed, break them down into smaller pieces and walk through them one-by-one. Aggresively simplify the code to make it minimal. Use comments{code_comment_note} to skip non-important implementation details. Each code block should have a beginner friendly explanation right after it{instruction_lang_note}.
+- **Relationships**: Explain how this table relates to other tables in the database{instruction_lang_note}. If this table references other tables, use proper Markdown links like this: [Table Name](filename.md) using the Complete Database Schema Structure above{link_lang_note}.
 
-- Describe the internal implementation to help understand what's under the hood{instruction_lang_note}. First provide a non-code or code-light walkthrough on what happens step-by-step when the abstraction is called{instruction_lang_note}. It's recommended to use a simple sequenceDiagram with a dummy example - keep it minimal with at most 5 participants to ensure clarity. If participant name has space, use: `participant QP as Query Processing`. {mermaid_lang_note}.
+- **Example Data**: Provide sample data showing what typical records might look like{instruction_lang_note}.
 
-- Then dive deeper into code for the internal implementation with references to files. Provide example code blocks, but make them similarly simple and beginner-friendly. Explain{instruction_lang_note}.
+- **SQL Schema**: If possible from the code context, provide the actual CREATE TABLE statement or equivalent ORM model definition.
 
-- IMPORTANT: When you need to refer to other core abstractions covered in other chapters, ALWAYS use proper Markdown links like this: [Chapter Title](filename.md). Use the Complete Tutorial Structure above to find the correct filename and the chapter title{link_lang_note}. Translate the surrounding text.
+- Use clear formatting with tables and code blocks to make the schema easy to read{instruction_lang_note}.
 
-- Use mermaid diagrams to illustrate complex concepts (```mermaid``` format). {mermaid_lang_note}.
+- End with any additional notes about usage patterns, performance considerations, or data validation rules{instruction_lang_note}.
 
-- Heavily use analogies and examples throughout{instruction_lang_note} to help beginners understand.
+- Output *only* the Markdown content for this table schema documentation.
 
-- End the chapter with a brief conclusion that summarizes what was learned{instruction_lang_note} and provides a transition to the next chapter{instruction_lang_note}. If there is a next chapter, use a proper Markdown link: [Next Chapter Title](next_chapter_filename){link_lang_note}.
-
-- Ensure the tone is welcoming and easy for a newcomer to understand{tone_note}.
-
-- Output *only* the Markdown content for this chapter.
-
-Now, directly provide a super beginner-friendly Markdown output (DON'T need ```markdown``` tags):
+Now, directly provide a comprehensive Markdown output (DON'T need ```markdown``` tags):
 """
-        chapter_content = call_llm(prompt, use_cache=(use_cache and self.cur_retry == 0)) # Use cache only if enabled and not retrying
+        schema_content = call_llm(prompt, use_cache=(use_cache and self.cur_retry == 0)) # Use cache only if enabled and not retrying
         # Basic validation/cleanup
-        actual_heading = f"# Chapter {chapter_num}: {abstraction_name}"  # Use potentially translated name
-        if not chapter_content.strip().startswith(f"# Chapter {chapter_num}"):
+        actual_heading = f"# Table Schema {schema_num}: {table_name}"  # Use potentially translated name
+        if not schema_content.strip().startswith(f"# Table Schema {schema_num}"):
             # Add heading if missing or incorrect, trying to preserve content
-            lines = chapter_content.strip().split("\n")
+            lines = schema_content.strip().split("\n")
             if lines and lines[0].strip().startswith(
                 "#"
             ):  # If there's some heading, replace it
                 lines[0] = actual_heading
-                chapter_content = "\n".join(lines)
+                schema_content = "\n".join(lines)
             else:  # Otherwise, prepend it
-                chapter_content = f"{actual_heading}\n\n{chapter_content}"
+                schema_content = f"{actual_heading}\n\n{schema_content}"
 
         # Add the generated content to our temporary list for the next iteration's context
-        self.chapters_written_so_far.append(chapter_content)
+        self.schemas_written_so_far.append(schema_content)
 
-        return chapter_content  # Return the Markdown string (potentially translated)
+        return schema_content  # Return the Markdown string (potentially translated)
 
     def post(self, shared, prep_res, exec_res_list):
-        # exec_res_list contains the generated Markdown for each chapter, in order
-        shared["chapters"] = exec_res_list
+        # exec_res_list contains the generated Markdown for each table schema, in order
+        shared["schemas"] = exec_res_list
         # Clean up the temporary instance variable
-        del self.chapters_written_so_far
-        print(f"Finished writing {len(exec_res_list)} chapters.")
+        del self.schemas_written_so_far
+        print(f"Finished writing {len(exec_res_list)} table schemas.")
 
 
-class CombineTutorial(Node):
+class CombineSchemas(Node):
     def prep(self, shared):
         project_name = shared["project_name"]
         output_base_dir = shared.get("output_dir", "output")  # Default output dir
@@ -762,84 +776,86 @@ class CombineTutorial(Node):
         relationships_data = shared[
             "relationships"
         ]  # {"summary": str, "details": [{"from": int, "to": int, "label": str}]} -> summary/label potentially translated
-        chapter_order = shared["chapter_order"]  # indices
-        abstractions = shared[
-            "abstractions"
+        table_order = shared["table_order"]  # indices
+        tables = shared[
+            "tables"
         ]  # list of dicts -> name/description potentially translated
-        chapters_content = shared[
-            "chapters"
+        schemas_content = shared[
+            "schemas"
         ]  # list of strings -> content potentially translated
 
         # --- Generate Mermaid Diagram ---
-        mermaid_lines = ["flowchart TD"]
-        # Add nodes for each abstraction using potentially translated names
-        for i, abstr in enumerate(abstractions):
-            node_id = f"A{i}"
+        mermaid_lines = ["erDiagram"]
+        # Add table entities for each table using potentially translated names
+        for i, table in enumerate(tables):
+            table_id = f"T{i}"
             # Use potentially translated name, sanitize for Mermaid ID and label
-            sanitized_name = abstr["name"].replace('"', "")
-            node_label = sanitized_name  # Using sanitized name only
+            sanitized_name = table["name"].replace('"', '').replace(' ', '_')
+            table_label = table["name"]  # Using original name for display
             mermaid_lines.append(
-                f'    {node_id}["{node_label}"]'
-            )  # Node label uses potentially translated name
-        # Add edges for relationships using potentially translated labels
+                f'    {sanitized_name} {{'
+            )
+            mermaid_lines.append(
+                f'        string id PK'
+            )
+            mermaid_lines.append(
+                f'    }}'
+            )
+        # Add relationships for foreign keys using potentially translated labels
         for rel in relationships_data["details"]:
-            from_node_id = f"A{rel['from']}"
-            to_node_id = f"A{rel['to']}"
-            # Use potentially translated label, sanitize
-            edge_label = (
-                rel["label"].replace('"', "").replace("\n", " ")
-            )  # Basic sanitization
-            max_label_len = 30
-            if len(edge_label) > max_label_len:
-                edge_label = edge_label[: max_label_len - 3] + "..."
+            from_table = tables[rel['from']]["name"].replace('"', '').replace(' ', '_')
+            to_table = tables[rel['to']]["name"].replace('"', '').replace(' ', '_')
+            # Use potentially translated label, convert to ER notation
+            relationship_type = "||--o|" if "one" in rel["label"].lower() else "||--||"
             mermaid_lines.append(
-                f'    {from_node_id} -- "{edge_label}" --> {to_node_id}'
-            )  # Edge label uses potentially translated label
+                f'    {from_table} {relationship_type} {to_table} : "{rel["label"]}"'
+            )
 
         mermaid_diagram = "\n".join(mermaid_lines)
         # --- End Mermaid ---
 
         # --- Prepare index.md content ---
-        index_content = f"# Tutorial: {project_name}\n\n"
+        index_content = f"# Database Schema: {project_name}\n\n"
         index_content += f"{relationships_data['summary']}\n\n"  # Use the potentially translated summary directly
         # Keep fixed strings in English
         index_content += f"**Source Repository:** [{repo_url}]({repo_url})\n\n"
 
-        # Add Mermaid diagram for relationships (diagram itself uses potentially translated names/labels)
+        # Add Mermaid diagram for database relationships (diagram itself uses potentially translated names/labels)
+        index_content += "## Database Schema Overview\n\n"
         index_content += "```mermaid\n"
         index_content += mermaid_diagram + "\n"
         index_content += "```\n\n"
 
         # Keep fixed strings in English
-        index_content += f"## Chapters\n\n"
+        index_content += f"## Table Schemas\n\n"
 
-        chapter_files = []
-        # Generate chapter links based on the determined order, using potentially translated names
-        for i, abstraction_index in enumerate(chapter_order):
+        schema_files = []
+        # Generate table schema links based on the determined order, using potentially translated names
+        for i, table_index in enumerate(table_order):
             # Ensure index is valid and we have content for it
-            if 0 <= abstraction_index < len(abstractions) and i < len(chapters_content):
-                abstraction_name = abstractions[abstraction_index][
+            if 0 <= table_index < len(tables) and i < len(schemas_content):
+                table_name = tables[table_index][
                     "name"
                 ]  # Potentially translated name
                 # Sanitize potentially translated name for filename
                 safe_name = "".join(
-                    c if c.isalnum() else "_" for c in abstraction_name
+                    c if c.isalnum() else "_" for c in table_name
                 ).lower()
                 filename = f"{i+1:02d}_{safe_name}.md"
-                index_content += f"{i+1}. [{abstraction_name}]({filename})\n"  # Use potentially translated name in link text
+                index_content += f"{i+1}. [{table_name}]({filename})\n"  # Use potentially translated name in link text
 
-                # Add attribution to chapter content (using English fixed string)
-                chapter_content = chapters_content[i]  # Potentially translated content
-                if not chapter_content.endswith("\n\n"):
-                    chapter_content += "\n\n"
+                # Add attribution to schema content (using English fixed string)
+                schema_content = schemas_content[i]  # Potentially translated content
+                if not schema_content.endswith("\n\n"):
+                    schema_content += "\n\n"
                 # Keep fixed strings in English
-                chapter_content += f"---\n\nGenerated by [AI Codebase Knowledge Builder](https://github.com/The-Pocket/Tutorial-Codebase-Knowledge)"
+                schema_content += f"---\n\nGenerated by [AI Codebase Knowledge Builder](https://github.com/The-Pocket/Tutorial-Codebase-Knowledge)"
 
                 # Store filename and corresponding content
-                chapter_files.append({"filename": filename, "content": chapter_content})
+                schema_files.append({"filename": filename, "content": schema_content})
             else:
                 print(
-                    f"Warning: Mismatch between chapter order, abstractions, or content at index {i} (abstraction index {abstraction_index}). Skipping file generation for this entry."
+                    f"Warning: Mismatch between table order, tables, or content at index {i} (table index {table_index}). Skipping file generation for this entry."
                 )
 
         # Add attribution to index content (using English fixed string)
@@ -848,15 +864,15 @@ class CombineTutorial(Node):
         return {
             "output_path": output_path,
             "index_content": index_content,
-            "chapter_files": chapter_files,  # List of {"filename": str, "content": str}
+            "schema_files": schema_files,  # List of {"filename": str, "content": str}
         }
 
     def exec(self, prep_res):
         output_path = prep_res["output_path"]
         index_content = prep_res["index_content"]
-        chapter_files = prep_res["chapter_files"]
+        schema_files = prep_res["schema_files"]
 
-        print(f"Combining tutorial into directory: {output_path}")
+        print(f"Combining database schema documentation into directory: {output_path}")
         # Rely on Node's built-in retry/fallback
         os.makedirs(output_path, exist_ok=True)
 
@@ -866,15 +882,15 @@ class CombineTutorial(Node):
             f.write(index_content)
         print(f"  - Wrote {index_filepath}")
 
-        # Write chapter files
-        for chapter_info in chapter_files:
-            chapter_filepath = os.path.join(output_path, chapter_info["filename"])
-            with open(chapter_filepath, "w", encoding="utf-8") as f:
-                f.write(chapter_info["content"])
-            print(f"  - Wrote {chapter_filepath}")
+        # Write schema files
+        for schema_info in schema_files:
+            schema_filepath = os.path.join(output_path, schema_info["filename"])
+            with open(schema_filepath, "w", encoding="utf-8") as f:
+                f.write(schema_info["content"])
+            print(f"  - Wrote {schema_filepath}")
 
         return output_path  # Return the final path
 
     def post(self, shared, prep_res, exec_res):
         shared["final_output_dir"] = exec_res  # Store the output path
-        print(f"\nTutorial generation complete! Files are in: {exec_res}")
+        print(f"\nDatabase schema documentation generation complete! Files are in: {exec_res}")
