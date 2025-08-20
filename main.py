@@ -7,8 +7,9 @@ dotenv.load_dotenv()
 
 DEFAULT_INCLUDE_PATTERNS = {
     "*.py", "*.js", "*.jsx", "*.ts", "*.tsx", "*.go", "*.java", "*.pyi", "*.pyx",
-    "*.c", "*.cc", "*.cpp", "*.h", "*.md", "*.rst", "*Dockerfile",
-    "*Makefile", "*.yaml", "*.yml",
+    "*.c", "*.cc", "*.cpp", "*.h", "*.sql", "*.ddl", "*.dml", 
+    "*.md", "*.rst", "*Dockerfile", "*Makefile", "*.yaml", "*.yml",
+    "*migration*", "*schema*", "*model*", "*entity*", "*dao*", "*repository*"
 }
 
 DEFAULT_EXCLUDE_PATTERNS = {
@@ -44,7 +45,7 @@ def main():
     parser.add_argument("-n", "--name", help="Project name (optional, derived from repo/directory if omitted).")
     parser.add_argument("-t", "--token", help="GitHub personal access token (optional, reads from GITHUB_TOKEN env var if not provided).")
     parser.add_argument("-o", "--output", default="output", help="Base directory for output (default: ./output).")
-    parser.add_argument("-i", "--include", nargs="+", help="Include file patterns (e.g. '*.py' '*.js'). Defaults to common code files if not specified.")
+    parser.add_argument("-i", "--include", nargs="+", help="Include file patterns (e.g. '*.py' '*.sql'). Defaults to common code and database files if not specified.")
     parser.add_argument("-e", "--exclude", nargs="+", help="Exclude file patterns (e.g. 'tests/*' 'docs/*'). Defaults to test/build directories if not specified.")
     parser.add_argument("-s", "--max-size", type=int, default=100000, help="Maximum file size in bytes (default: 100000, about 100KB).")
     parser.add_argument("--no-cache", action="store_true", help="Disable LLM response caching (default: caching enabled)")
@@ -77,6 +78,7 @@ def main():
     print(f"LLM caching: {'Disabled' if args.no_cache else 'Enabled'}")
 
     schema_flow = create_schema_flow()
+
     schema_flow.run(shared)
 
 if __name__ == "__main__":

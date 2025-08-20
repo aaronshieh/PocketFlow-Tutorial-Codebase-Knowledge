@@ -3,7 +3,7 @@ from nodes import (
     FetchRepo,
     IdentifyTables,
     DescribeTables,
-    CombineSchema,
+    CombineSchema
 )
 
 def create_schema_flow():
